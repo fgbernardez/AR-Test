@@ -12,307 +12,328 @@ public class ARController : MonoBehaviour
     public GameObject cubePrefab;   
     public GameObject spherePrefab; 
 
-    [Header("Exercise Elements")]
-    public GameObject labelPrefab; // <-- Drag your new 3D Text Prefab here!
-
     [Header("UI Controls")]
-    public GameObject controlPanel;    // The panel holding sliders
-    public TextMeshProUGUI mathText;   // The text showing Volume
-    public Slider sliderX; // Length (or Radius)
-    public Slider sliderY; // Height
-    public Slider sliderZ; // Width
+    public GameObject controlPanel;    
+    public TextMeshProUGUI mathText;   
+    public Button resetButton;         
+    
+    // Sliders
+    public Slider sliderX; 
+    public Slider sliderY; 
+    public Slider sliderZ; 
 
     [Header("AR Components")]
     public GameObject promptText;
     public ARRaycastManager raycastManager;
+    public ARPlaneManager planeManager; 
 
     [Header("Exercise Elements")]
-    public GameObject dimensionPrefab; // <-- Drag your new "DimensionLine" Prefab here!
-    public GameObject volumeLabelPrefab; // <-- Keep your OLD text prefab for the Volume label (optional)
+    public GameObject dimensionPrefab;   
+    public GameObject volumeLabelPrefab; 
     
-    // ... inside ARController class ...
-    
-    // STORAGE FOR LEARNING LABELS
-    private GameObject learnLabelL, learnLabelW, learnLabelH, learnLabelVol;
-
-    private GameObject objectToSpawn; 
+    // INTERNAL STATE
+    private List<GameObject> activeDimensions = new List<GameObject>();
+    private GameObject volumeLabelObj;
     private GameObject spawnedObject; 
     private string selectedShape;
+    private bool isPlaced = false; 
+
+    // ANIMATION STATE
+    private bool isShowcasing = false;
+    private float showcaseTimer = 0f;
 
     void Start()
     {
-        // 1. Determine Shape
         selectedShape = string.IsNullOrEmpty(ButtonScript.selectedShape) ? "Cube" : ButtonScript.selectedShape; 
-        objectToSpawn = (selectedShape == "Sphere") ? spherePrefab : cubePrefab;
 
-        // 2. CHECK MODE: Are we Learning or Exercising?
-        if (ExerciseManager.isExerciseMode)
-        {
-            // --- EXERCISE MODE ---
-            // Hide the sliders completely. We don't need them.
+        if (resetButton != null) resetButton.onClick.AddListener(ResetScene);
+
+        if (ExerciseManager.isExerciseMode) {
             if (controlPanel != null) controlPanel.SetActive(false);
+            if (promptText != null) promptText.GetComponent<TextMeshProUGUI>().text = "Touch & Hold to place";
+        } else {
+            // Setup slider listeners
+            if (sliderX != null) sliderX.onValueChanged.AddListener(delegate { StopShowcase(); UpdateDimensions(); });
+            if (sliderY != null) sliderY.onValueChanged.AddListener(delegate { StopShowcase(); UpdateDimensions(); });
+            if (sliderZ != null) sliderZ.onValueChanged.AddListener(delegate { StopShowcase(); UpdateDimensions(); });
             
-            // Set prompt text to something helpful
-            if (promptText != null) 
-                promptText.GetComponent<TextMeshProUGUI>().text = "Tap to place the problem";
-        }
-        else
-        {
-            // --- LEARNING MODE ---
-            // Setup listeners to run "UpdateDimensions" whenever sliders move
-            if (sliderX != null) sliderX.onValueChanged.AddListener(delegate { UpdateDimensions(); });
-            if (sliderY != null) sliderY.onValueChanged.AddListener(delegate { UpdateDimensions(); });
-            if (sliderZ != null) sliderZ.onValueChanged.AddListener(delegate { UpdateDimensions(); });
-
-            // Hide unrelated sliders for Sphere
-            if (selectedShape == "Sphere")
-            {
+            if (selectedShape == "Sphere") {
                 if (sliderY != null) sliderY.gameObject.SetActive(false);
                 if (sliderZ != null) sliderZ.gameObject.SetActive(false);
             }
-            
-            // Hide control panel until object is spawned
             if (controlPanel != null) controlPanel.SetActive(false);
         }
     }
 
     void Update()
     {
-        if (spawnedObject != null) return; // Stop scanning if object exists
-
-        // --- UNIFIED INPUT CHECK (Mouse or Touch) ---
-        if (Input.touchCount > 0 || Input.GetMouseButtonDown(0))
+        // 1. If we are in "Watch Mode", run the animation
+        if (isPlaced && isShowcasing && spawnedObject != null)
         {
-            Vector2 touchPos = (Input.touchCount > 0) ? Input.GetTouch(0).position : (Vector2)Input.mousePosition;
+            AnimateShowcase();
+            return; 
+        }
 
-            // 1. Raycast against Manual Floor (PC Test)
-            if (Input.GetMouseButtonDown(0))
+        // 2. If not placed yet, handle Drag & Drop
+        if (!isPlaced && Input.touchCount > 0)
+        {
+            Touch touch = Input.GetTouch(0);
+
+            if (touch.phase == TouchPhase.Began)
             {
-                Ray ray = Camera.main.ScreenPointToRay(touchPos);
-                if (Physics.Raycast(ray, out RaycastHit hit))
-                {
-                    SpawnObject(hit.point, Quaternion.identity);
-                    return;
-                }
+                if (IsTouchingUI(touch)) return; 
+                SpawnGhost(touch.position);
             }
-
-            // 2. Raycast against AR Planes (Mobile)
-            List<ARRaycastHit> hits = new List<ARRaycastHit>();
-            if (raycastManager.Raycast(touchPos, hits, TrackableType.PlaneWithinPolygon))
+            else if (touch.phase == TouchPhase.Moved && spawnedObject != null)
             {
-                SpawnObject(hits[0].pose.position, hits[0].pose.rotation);
+                MoveGhost(touch.position);
+            }
+            else if ((touch.phase == TouchPhase.Ended || touch.phase == TouchPhase.Canceled) && spawnedObject != null)
+            {
+                FinalizePlacement();
             }
         }
     }
 
-    void SpawnObject(Vector3 position, Quaternion rotation)
+    // --- PHASE 1: SPAWN GHOST ---
+    void SpawnGhost(Vector2 touchPos)
     {
-        spawnedObject = Instantiate(objectToSpawn, position, rotation);
+        Pose hitPose = GetPlanePosition(touchPos);
+        if (hitPose == Pose.identity) return; 
+
+        GameObject prefabToUse = (selectedShape == "Sphere") ? spherePrefab : cubePrefab;
+        spawnedObject = Instantiate(prefabToUse, hitPose.position, hitPose.rotation);
         
-        // Make object face camera
         Vector3 lookPos = new Vector3(Camera.main.transform.position.x, spawnedObject.transform.position.y, Camera.main.transform.position.z);
         spawnedObject.transform.LookAt(lookPos);
+    }
 
-        // Hide "Scan Floor" text
+    // --- PHASE 2: MOVE GHOST ---
+    void MoveGhost(Vector2 touchPos)
+    {
+        Pose hitPose = GetPlanePosition(touchPos);
+        if (hitPose != Pose.identity)
+        {
+            spawnedObject.transform.position = Vector3.Lerp(spawnedObject.transform.position, hitPose.position, 0.2f);
+        }
+    }
+
+    // --- PHASE 3: LOCK IT ---
+    void FinalizePlacement()
+    {
+        isPlaced = true;
+        TogglePlaneDetection(false);
+
         if (promptText != null) promptText.SetActive(false);
 
-        // --- BRANCHING LOGIC ---
         if (ExerciseManager.isExerciseMode)
         {
-            SetupExerciseVisuals(); // Run the Blueprint logic
+            SetupExerciseVisuals(); 
         }
         else
         {
-            // Run the Slider logic
             if (controlPanel != null) controlPanel.SetActive(true);
-            UpdateDimensions();
+            
+            // Start the Auto-Showcase animation immediately
+            isShowcasing = true;
+            showcaseTimer = 0f;
         }
     }
 
-    // ---------------------------------------------------------
-    // LOGIC A: EXERCISE MODE (Static Blueprint)
-    // ---------------------------------------------------------
-   void SetupExerciseVisuals()
+    // --- ANIMATION LOGIC ---
+void AnimateShowcase()
+{
+    if (spawnedObject == null) return;
+
+    showcaseTimer += Time.deltaTime;
+
+    // 1. CALCULATE BILLBOARD ROTATION
+    Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
+    dirToCamera.y = 0; 
+    Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
+    textRotation *= Quaternion.Euler(0, 180, 0); // Flip to fix mirroring
+
+    // 2. MORPH MATH
+    float l = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
+    float h = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
+    float w = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
+
+    // 3. APPLY SCALING (The Cube stays at its original rotation)
+    if (selectedShape == "Sphere")
     {
-        // 1. Set Cube Size (2m x 2m x 3m)
-        float scaleL = 0.4f; 
-        float scaleW = 0.4f;
-        float scaleH = 0.6f; 
-        spawnedObject.transform.localScale = new Vector3(scaleL, scaleH, scaleW);
+        float r = l;
+        spawnedObject.transform.localScale = Vector3.one * r;
+        float radius = r / 2f;
+        float vol = (4f / 3f) * Mathf.PI * Mathf.Pow(radius, 3);
+        
+        if (mathText != null) mathText.text = $"<color=yellow>Watch Mode</color>\nRadius: {radius:F2}m\nVolume: {vol:F2} m³";
+        
+        ClearOldLabels();
+        CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, $"r = {radius:F2}m");
+        CreateVolumeLabel($"Vol: {vol:F2}m³", r);
+    }
+    else
+    {
+        spawnedObject.transform.localScale = new Vector3(l, h, w);
+        float vol = l * h * w;
 
-        // Define Corners
-        Vector3 botLeftFront  = new Vector3(-0.5f, 0, -0.5f);
-        Vector3 botRightFront = new Vector3( 0.5f, 0, -0.5f);
-        Vector3 topLeftFront  = new Vector3(-0.5f, 1, -0.5f);
-        Vector3 botLeftBack   = new Vector3(-0.5f, 0,  0.5f);
+        if (mathText != null) mathText.text = $"<color=yellow>Watch Mode</color>\nL:{l:F1} | H:{h:F1} | W:{w:F1}\nVolume: {vol:F2} m³";
+        
+        ClearOldLabels();
+        Vector3 p = new Vector3(-0.5f, 0, -0.5f);
+        CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), $"L={l:F1}");
+        CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), $"H={h:F1}");
+        CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={w:F1}");
+        CreateVolumeLabel($"Vol: {vol:F2}", (l+h+w)/3f);
+    }
 
-        // --- DRAW DIMENSIONS ---
-        // I reduced the offsets (0.05f) so the lines hug the cube tighter.
+    // 4. ROTATE TEXT ONLY
+    // A. Rotate the main Volume label
+    if (volumeLabelObj != null) 
+        volumeLabelObj.transform.rotation = textRotation;
 
-        // L = 2m
-        CreateDimension(botLeftFront, botRightFront, new Vector3(0, -0.05f, -0.05f), "L = 2m");
-
-        // H = ?
-        CreateDimension(botLeftFront, topLeftFront, new Vector3(-0.05f, 0, -0.05f), "H = ?");
-
-        // W = 2m
-        CreateDimension(botLeftFront, botLeftBack, new Vector3(-0.05f, -0.05f, 0), "W = 2m");
-
-        // --- FIX THE VOLUME LABEL ---
-        if (volumeLabelPrefab != null)
+    // B. Rotate the text INSIDE the dimension lines
+    foreach (var dim in activeDimensions)
+    {
+        if (dim != null)
         {
-            GameObject vLabel = Instantiate(volumeLabelPrefab, spawnedObject.transform);
+            // We find the TextMeshPro component in the children of the line
+            // and only rotate THAT transform. The line remains fixed.
+            TextMeshPro label = dim.GetComponentInChildren<TextMeshPro>();
+            if (label != null)
+            {
+                label.transform.rotation = textRotation;
+            }
+        }
+    }
+
+    // 5. SLIDER SYNC
+    if (sliderX != null) sliderX.SetValueWithoutNotify(l);
+    if (sliderY != null) sliderY.SetValueWithoutNotify(h);
+    if (sliderZ != null) sliderZ.SetValueWithoutNotify(w);
+}
+
+    void StopShowcase()
+    {
+        if (isShowcasing)
+        {
+            isShowcasing = false;
+        }
+    }
+
+    // --- MANUAL CONTROL ---
+    public void UpdateDimensions()
+    {
+        if (spawnedObject == null || isShowcasing) return;
+        ClearOldLabels();
+
+        if (selectedShape == "Sphere")
+        {
+            float scale = sliderX.value; 
+            spawnedObject.transform.localScale = Vector3.one * scale;
+            float radius = scale / 2f;
+            float volume = (4f / 3f) * Mathf.PI * Mathf.Pow(radius, 3);
+
+            if (mathText != null) mathText.text = $"Radius: {radius:F2}m\nVolume: {volume:F2} m³";
+            CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, $"r = {radius:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", scale);
+        }
+        else
+        {
+            float l = sliderX.value; float h = sliderY.value; float w = sliderZ.value;
+            spawnedObject.transform.localScale = new Vector3(l, h, w);
+            float volume = l * h * w;
+
+            if (mathText != null) mathText.text = $"L:{l:F1} | H:{h:F1} | W:{w:F1}\nVolume: {volume:F2} m³";
             
-            // FIX 1: Move it HIGHER (Y=1.5 is safer than 1.3)
-            vLabel.transform.localPosition = new Vector3(0, 1.5f, 0); 
-            vLabel.GetComponent<TextMeshPro>().text = "Volume = 12m³";
-            
-            // FIX 2: FORCE IT TINY
-            // We changed 0.2f -> 0.03f. This makes it roughly 7x smaller.
-            float parentScale = spawnedObject.transform.localScale.y; 
-            vLabel.transform.localScale = Vector3.one * (1f / parentScale) * 0.03f; 
+            Vector3 p = new Vector3(-0.5f, 0, -0.5f);
+            CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), $"L={l:F1}");
+            CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), $"H={h:F1}");
+            CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={w:F1}");
+            CreateVolumeLabel($"Vol: {volume:F2}", (l+h+w)/3f);
+        }
+    }
+
+    // --- HELPERS ---
+    Pose GetPlanePosition(Vector2 touchPos)
+    {
+        List<ARRaycastHit> hits = new List<ARRaycastHit>();
+        if (raycastManager.Raycast(touchPos, hits, TrackableType.PlaneWithinPolygon)) return hits[0].pose;
+        return Pose.identity; 
+    }
+
+    void TogglePlaneDetection(bool status)
+    {
+        if (planeManager != null)
+        {
+            planeManager.enabled = status; 
+            foreach (var plane in planeManager.trackables) plane.gameObject.SetActive(status);
+        }
+    }
+
+    public void ResetScene()
+    {
+        StopShowcase();
+        if (spawnedObject != null) { Destroy(spawnedObject); spawnedObject = null; }
+        ClearOldLabels();
+        isPlaced = false; 
+        TogglePlaneDetection(true);
+        if (promptText != null) promptText.SetActive(true);
+        if (controlPanel != null) controlPanel.SetActive(false);
+    }
+
+    bool IsTouchingUI(Touch t)
+    {
+        return UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject(t.fingerId);
+    }
+
+    void SetupExerciseVisuals()
+    {
+        ClearOldLabels();
+        if (selectedShape == "Sphere")
+        {
+            spawnedObject.transform.localScale = Vector3.one * 0.6f;
+            CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, "r = 0.3m");
+            CreateVolumeLabel("Volume ≈ 0.11m³", 0.6f);
+        }
+        else
+        {
+            spawnedObject.transform.localScale = new Vector3(0.4f, 0.6f, 0.4f);
+            Vector3 p = new Vector3(-0.5f, 0, -0.5f);
+            CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), "L = 2m");
+            CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), "H = ?");
+            CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), "W = 2m");
+            CreateVolumeLabel("Volume = 12m³", 0.5f);
         }
     }
 
     void CreateDimension(Vector3 start, Vector3 end, Vector3 offset, string text)
     {
         if (dimensionPrefab == null) return;
-
-        // Instantiate inside the cube so it scales/moves with it
-        GameObject dimObj = Instantiate(dimensionPrefab, spawnedObject.transform);
-        
-        // Configure the lines
-        DimensionBuilder builder = dimObj.GetComponent<DimensionBuilder>();
-        if (builder != null)
-        {
-            builder.Configure(start, end, offset, text);
-        }
+        GameObject dim = Instantiate(dimensionPrefab, spawnedObject.transform);
+        dim.GetComponent<DimensionBuilder>().Configure(start, end, offset, text);
+        activeDimensions.Add(dim);
     }
 
-    // ---------------------------------------------------------
-    // LOGIC B: LEARNING MODE (Sliders & Math)
-    // ---------------------------------------------------------
-    public void UpdateDimensions()
+    void CreateVolumeLabel(string text, float scaleRef)
     {
-        if (spawnedObject == null) return;
-
-        float volume = 0f;
-
-        // --- CUBE LOGIC ---
-        if (selectedShape == "Cube")
-        {
-            float length = sliderX.value; // Scale X
-            float height = sliderY.value; // Scale Y
-            float width  = sliderZ.value; // Scale Z
-
-            // 1. Apply Scale
-            spawnedObject.transform.localScale = new Vector3(length, height, width);
-            volume = length * width * height;
-
-            // 2. Update UI Text (The 2D Debug Panel)
-            if (mathText != null)
-            {
-                mathText.text = $"L: {length:F2}m  |  H: {height:F2}m  |  W: {width:F2}m\n<b>Volume: {volume:F2} m³</b>";
-            }
-
-            // 3. UPDATE 3D VISUALS (The New Feature)
-            // Only runs if we are NOT in Exercise Mode (since Exercise has its own setup)
-            if (!ExerciseManager.isExerciseMode)
-            {
-                UpdateLearningVisuals(length, height, width, volume);
-            }
-        }
-        
-        // --- SPHERE LOGIC ---
-        else if (selectedShape == "Sphere")
-        {
-            // ... (Keep your sphere logic here) ...
-        }
+        if (volumeLabelPrefab == null) return;
+        volumeLabelObj = Instantiate(volumeLabelPrefab, spawnedObject.transform);
+        volumeLabelObj.transform.localPosition = new Vector3(0, 1.5f, 0); 
+        volumeLabelObj.GetComponent<TextMeshPro>().text = text;
+        if (scaleRef < 0.1f) scaleRef = 0.1f;
+        volumeLabelObj.transform.localScale = Vector3.one * (1f / scaleRef) * 0.05f;
     }
-    
-    void UpdateLearningVisuals(float l, float h, float w, float vol)
+
+    void ClearOldLabels()
     {
-        // DEFINE CORNERS (Same as Exercise Mode)
-        Vector3 botLeftFront  = new Vector3(-0.5f, 0, -0.5f);
-        Vector3 botRightFront = new Vector3( 0.5f, 0, -0.5f);
-        Vector3 topLeftFront  = new Vector3(-0.5f, 1, -0.5f);
-        Vector3 botLeftBack   = new Vector3(-0.5f, 0,  0.5f);
-
-        // --- 1. LENGTH LABEL ---
-        if (learnLabelL == null) // Does it exist?
-        {
-            // No? Create it!
-            learnLabelL = Instantiate(dimensionPrefab, spawnedObject.transform);
-            learnLabelL.GetComponent<DimensionBuilder>().Configure(botLeftFront, botRightFront, new Vector3(0, -0.05f, -0.05f), "");
-        }
-        // Update the Text
-        learnLabelL.GetComponent<DimensionBuilder>().UpdateText($"L = {l:F1}m");
-
-        // --- 2. HEIGHT LABEL ---
-        if (learnLabelH == null)
-        {
-            learnLabelH = Instantiate(dimensionPrefab, spawnedObject.transform);
-            learnLabelH.GetComponent<DimensionBuilder>().Configure(botLeftFront, topLeftFront, new Vector3(-0.05f, 0, -0.05f), "");
-        }
-        learnLabelH.GetComponent<DimensionBuilder>().UpdateText($"H = {h:F1}m");
-
-        // --- 3. WIDTH LABEL ---
-        if (learnLabelW == null)
-        {
-            learnLabelW = Instantiate(dimensionPrefab, spawnedObject.transform);
-            learnLabelW.GetComponent<DimensionBuilder>().Configure(botLeftFront, botLeftBack, new Vector3(-0.05f, -0.05f, 0), "");
-        }
-        learnLabelW.GetComponent<DimensionBuilder>().UpdateText($"W = {w:F1}m");
-
-        // ... inside UpdateLearningVisuals ...
-
-    // --- 4. VOLUME LABEL ---
-    if (volumeLabelPrefab != null)
-    {
-        // A. Create if needed
-        if (learnLabelVol == null)
-        {
-            learnLabelVol = Instantiate(volumeLabelPrefab, spawnedObject.transform);
-            learnLabelVol.transform.localPosition = new Vector3(0, 1.5f, 0);
-            
-            // Ensure it's centered
-            TextMeshPro tmp = learnLabelVol.GetComponent<TextMeshPro>();
-            tmp.alignment = TextAlignmentOptions.Center;
-            tmp.fontSize = 6; // Standardize font size
-        }
-        
-        // B. Update Text
-        learnLabelVol.GetComponent<TextMeshPro>().text = $"Volume\n{vol:F2} m³";
-        
-        // C. FIX SCALING (The "Harmonizer")
-        // We now use the exact same math as DimensionBuilder so they match perfectly.
-        
-        float parentX = spawnedObject.transform.localScale.x;
-        float parentY = spawnedObject.transform.localScale.y;
-        float avgScale = (parentX + parentY) / 2f;
-        
-        // Safety check to prevent divide by zero
-        if (avgScale < 0.001f) avgScale = 0.001f;
-
-        // Match the multiplier from DimensionBuilder (0.05f). 
-        // We use 0.06f to make Volume slightly (20%) bigger than dimensions, for emphasis.
-        learnLabelVol.transform.localScale = Vector3.one * (1f / avgScale) * 0.06f;
+        foreach (var d in activeDimensions) Destroy(d);
+        activeDimensions.Clear();
+        if (volumeLabelObj != null) Destroy(volumeLabelObj);
     }
-    }
-    
-    // ---------------------------------------------------------
-    // EXIT LOGIC
-    // ---------------------------------------------------------
+
     public void ExitAR()
     {
-        if (ExerciseManager.isExerciseMode)
-        {
-            ExerciseManager.hasVisualized = true; 
-            SceneManager.LoadScene("AR_Exercises");
-        }
-        else
-        {
-            SceneManager.LoadScene("AR_Learning");
-        }
+        SceneManager.LoadScene(ExerciseManager.isExerciseMode ? "AR_Exercises" : "AR_Learning");
     }
 }
