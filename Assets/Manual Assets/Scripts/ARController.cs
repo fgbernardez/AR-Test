@@ -10,6 +10,10 @@ public class ARController : MonoBehaviour
 {
     [Header("Spawnable Objects")]
     public GameObject cubePrefab;   
+    public GameObject rectangularPrismPrefab; 
+    public GameObject pyramidPrefab; 
+    public GameObject conePrefab; 
+    public GameObject cylinderPrefab; 
     public GameObject spherePrefab; 
 
     [Header("UI Controls")]
@@ -57,10 +61,21 @@ public class ARController : MonoBehaviour
             if (sliderY != null) sliderY.onValueChanged.AddListener(delegate { StopShowcase(); UpdateDimensions(); });
             if (sliderZ != null) sliderZ.onValueChanged.AddListener(delegate { StopShowcase(); UpdateDimensions(); });
             
-            if (selectedShape == "Sphere") {
+            // DYNAMICALLY HIDE SLIDERS
+            if (selectedShape == "Sphere" || selectedShape == "Cube") {
                 if (sliderY != null) sliderY.gameObject.SetActive(false);
                 if (sliderZ != null) sliderZ.gameObject.SetActive(false);
             }
+            else if (selectedShape == "Cylinder" || selectedShape == "Cone" || selectedShape == "Pyramid") {
+                if (sliderY != null) sliderY.gameObject.SetActive(true);
+                if (sliderZ != null) sliderZ.gameObject.SetActive(false);
+            }
+            else {
+                // Rectangular Prism needs all 3
+                if (sliderY != null) sliderY.gameObject.SetActive(true);
+                if (sliderZ != null) sliderZ.gameObject.SetActive(true);
+            }
+            
             if (controlPanel != null) controlPanel.SetActive(false);
         }
     }
@@ -101,7 +116,16 @@ public class ARController : MonoBehaviour
         Pose hitPose = GetPlanePosition(touchPos);
         if (hitPose == Pose.identity) return; 
 
-        GameObject prefabToUse = (selectedShape == "Sphere") ? spherePrefab : cubePrefab;
+        GameObject prefabToUse = cubePrefab; // Default
+        switch (selectedShape)
+        {
+            case "RectangularPrism": prefabToUse = rectangularPrismPrefab; break;
+            case "Pyramid": prefabToUse = pyramidPrefab; break;
+            case "Cone": prefabToUse = conePrefab; break;
+            case "Cylinder": prefabToUse = cylinderPrefab; break;
+            case "Sphere": prefabToUse = spherePrefab; break;
+        }
+
         spawnedObject = Instantiate(prefabToUse, hitPose.position, hitPose.rotation);
         
         Vector3 lookPos = new Vector3(Camera.main.transform.position.x, spawnedObject.transform.position.y, Camera.main.transform.position.z);
@@ -141,77 +165,44 @@ public class ARController : MonoBehaviour
     }
 
     // --- ANIMATION LOGIC ---
-void AnimateShowcase()
-{
-    if (spawnedObject == null) return;
-
-    showcaseTimer += Time.deltaTime;
-
-    // 1. CALCULATE BILLBOARD ROTATION
-    Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
-    dirToCamera.y = 0; 
-    Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
-    textRotation *= Quaternion.Euler(0, 180, 0); // Flip to fix mirroring
-
-    // 2. MORPH MATH
-    float l = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
-    float h = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
-    float w = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
-
-    // 3. APPLY SCALING (The Cube stays at its original rotation)
-    if (selectedShape == "Sphere")
+    void AnimateShowcase()
     {
-        float r = l;
-        spawnedObject.transform.localScale = Vector3.one * r;
-        float radius = r / 2f;
-        float vol = (4f / 3f) * Mathf.PI * Mathf.Pow(radius, 3);
-        
-        if (mathText != null) mathText.text = $"<color=yellow>Watch Mode</color>\nRadius: {radius:F2}m\nVolume: {vol:F2} m³";
-        
-        ClearOldLabels();
-        CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, $"r = {radius:F2}m");
-        CreateVolumeLabel($"Vol: {vol:F2}m³", r);
-    }
-    else
-    {
-        spawnedObject.transform.localScale = new Vector3(l, h, w);
-        float vol = l * h * w;
+        if (spawnedObject == null) return;
 
-        if (mathText != null) mathText.text = $"<color=yellow>Watch Mode</color>\nL:{l:F1} | H:{h:F1} | W:{w:F1}\nVolume: {vol:F2} m³";
-        
-        ClearOldLabels();
-        Vector3 p = new Vector3(-0.5f, 0, -0.5f);
-        CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), $"L={l:F1}");
-        CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), $"H={h:F1}");
-        CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={w:F1}");
-        CreateVolumeLabel($"Vol: {vol:F2}", (l+h+w)/3f);
-    }
+        showcaseTimer += Time.deltaTime;
 
-    // 4. ROTATE TEXT ONLY
-    // A. Rotate the main Volume label
-    if (volumeLabelObj != null) 
-        volumeLabelObj.transform.rotation = textRotation;
+        // 1. CALCULATE BILLBOARD ROTATION
+        Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
+        dirToCamera.y = 0; 
+        Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
+        textRotation *= Quaternion.Euler(0, 180, 0); // Flip to fix mirroring
 
-    // B. Rotate the text INSIDE the dimension lines
-    foreach (var dim in activeDimensions)
-    {
-        if (dim != null)
+        // 2. MORPH MATH
+        float valX = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
+        float valY = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
+        float valZ = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
+
+        // 3. APPLY CORE MATH ENGINE
+        ApplyMathAndScale(valX, valY, valZ, true);
+
+        // 4. ROTATE TEXT ONLY
+        if (volumeLabelObj != null) 
+            volumeLabelObj.transform.rotation = textRotation;
+
+        foreach (var dim in activeDimensions)
         {
-            // We find the TextMeshPro component in the children of the line
-            // and only rotate THAT transform. The line remains fixed.
-            TextMeshPro label = dim.GetComponentInChildren<TextMeshPro>();
-            if (label != null)
+            if (dim != null)
             {
-                label.transform.rotation = textRotation;
+                TextMeshPro label = dim.GetComponentInChildren<TextMeshPro>();
+                if (label != null) label.transform.rotation = textRotation;
             }
         }
-    }
 
-    // 5. SLIDER SYNC
-    if (sliderX != null) sliderX.SetValueWithoutNotify(l);
-    if (sliderY != null) sliderY.SetValueWithoutNotify(h);
-    if (sliderZ != null) sliderZ.SetValueWithoutNotify(w);
-}
+        // 5. SLIDER SYNC
+        if (sliderX != null) sliderX.SetValueWithoutNotify(valX);
+        if (sliderY != null) sliderY.SetValueWithoutNotify(valY);
+        if (sliderZ != null) sliderZ.SetValueWithoutNotify(valZ);
+    }
 
     void StopShowcase()
     {
@@ -225,32 +216,60 @@ void AnimateShowcase()
     public void UpdateDimensions()
     {
         if (spawnedObject == null || isShowcasing) return;
+        ApplyMathAndScale(sliderX.value, sliderY.value, sliderZ.value, false);
+    }
+
+    // --- THE CORE MATH ENGINE ---
+    void ApplyMathAndScale(float x, float y, float z, bool isWatchMode)
+    {
         ClearOldLabels();
+        float volume = 0f;
+        string prefix = isWatchMode ? "<color=yellow>Watch Mode</color>\n" : "";
 
-        if (selectedShape == "Sphere")
+        if (selectedShape == "Cube")
         {
-            float scale = sliderX.value; 
-            spawnedObject.transform.localScale = Vector3.one * scale;
-            float radius = scale / 2f;
-            float volume = (4f / 3f) * Mathf.PI * Mathf.Pow(radius, 3);
-
-            if (mathText != null) mathText.text = $"Radius: {radius:F2}m\nVolume: {volume:F2} m³";
-            CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, $"r = {radius:F2}m");
-            CreateVolumeLabel($"Vol: {volume:F2}m³", scale);
+            spawnedObject.transform.localScale = Vector3.one * x;
+            volume = Mathf.Pow(x, 3);
+            if (mathText != null) mathText.text = $"{prefix}Side: {x:F2}m\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", x);
         }
-        else
+        else if (selectedShape == "Sphere")
         {
-            float l = sliderX.value; float h = sliderY.value; float w = sliderZ.value;
-            spawnedObject.transform.localScale = new Vector3(l, h, w);
-            float volume = l * h * w;
-
-            if (mathText != null) mathText.text = $"L:{l:F1} | H:{h:F1} | W:{w:F1}\nVolume: {volume:F2} m³";
-            
-            Vector3 p = new Vector3(-0.5f, 0, -0.5f);
-            CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), $"L={l:F1}");
-            CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), $"H={h:F1}");
-            CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={w:F1}");
-            CreateVolumeLabel($"Vol: {volume:F2}", (l+h+w)/3f);
+            spawnedObject.transform.localScale = Vector3.one * x;
+            float r = x / 2f;
+            volume = (4f / 3f) * Mathf.PI * Mathf.Pow(r, 3);
+            if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", x);
+        }
+        else if (selectedShape == "Cylinder")
+        {
+            spawnedObject.transform.localScale = new Vector3(x, y, x);
+            float r = x / 2f;
+            volume = Mathf.PI * Mathf.Pow(r, 2) * y;
+            if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+        }
+        else if (selectedShape == "Cone")
+        {
+            spawnedObject.transform.localScale = new Vector3(x, y, x);
+            float r = x / 2f;
+            volume = (1f / 3f) * Mathf.PI * Mathf.Pow(r, 2) * y;
+            if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+        }
+        else if (selectedShape == "Pyramid")
+        {
+            spawnedObject.transform.localScale = new Vector3(x, y, x);
+            volume = (1f / 3f) * Mathf.Pow(x, 2) * y; 
+            if (mathText != null) mathText.text = $"{prefix}Base: {x:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+        }
+        else // Rectangular Prism
+        {
+            spawnedObject.transform.localScale = new Vector3(x, y, z);
+            volume = x * y * z;
+            if (mathText != null) mathText.text = $"{prefix}L:{x:F1} | H:{y:F1} | W:{z:F1}\nVolume: {volume:F2} m³";
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y+z)/3f);
         }
     }
 

@@ -2041,7 +2041,11 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: 5cae18ab5d0eb45508ac23b0622d9531, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ARController
-  cubePrefab: {fileID: 2469487934580733021, guid: 310463b1913064ea8b0b48aad3eb2ada, type: 3}
+  cubePrefab: {fileID: 3420529652900992684, guid: 857f89b931ab84a46ab468f50e04763f, type: 3}
+  rectangularPrismPrefab: {fileID: 6698727969510872872, guid: 9f52e4643d8f04bda87bfa43a73cf8fb, type: 3}
+  pyramidPrefab: {fileID: 6471135361479287669, guid: 544516797eb7848ec93b2cfaa98ad8bc, type: 3}
+  conePrefab: {fileID: 7930079991717072037, guid: b8b5e293be50648ba956553794d7fccc, type: 3}
+  cylinderPrefab: {fileID: 7363976442007460908, guid: fefb8b8bbfb1a4368acaa17f7d764e3d, type: 3}
   spherePrefab: {fileID: 5364608356390285336, guid: 99c314cae618f47dcab8a2967c520874, type: 3}
   controlPanel: {fileID: 731799074}
   mathText: {fileID: 1913232502}

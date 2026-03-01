@@ -50,13 +50,15 @@
     <Analyzer Include="/Users/maii/Downloads/SolidsAR/My project (1)/Library/PackageCache/com.unity.dt.app-ui@8ac7e730dd5d/Runtime/MVVM/SourceGenerators/netstandard2.0/MVVMSourceGenerators.dll" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="Assets/Scripts/ExerciseManager.cs" />
-    <Compile Include="Assets/Scripts/ButtonScript.cs" />
-    <Compile Include="Assets/Scripts/ARLauncher.cs" />
-    <Compile Include="Assets/Scripts/DimensionBuilder.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/DimensionBuilder.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/UIManager.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/ARLearning.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/ARController.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/ExerciseManager.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/FaceCamera.cs" />
     <Compile Include="Assets/TutorialInfo/Scripts/Readme.cs" />
-    <Compile Include="Assets/Scripts/ARController.cs" />
-    <Compile Include="Assets/Scripts/FaceCamera.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/ButtonScript.cs" />
+    <Compile Include="Assets/Manual Assets/Scripts/ARLauncher.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets/TextMesh Pro/Shaders/TMPro.cginc" />
@@ -1562,6 +1564,7 @@
     </Reference>
   </ItemGroup>
   <ItemGroup>
+    <ProjectReference Include="UltimateProceduralPrimitivesFREE.csproj" />
   </ItemGroup>
   <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
   <ItemGroup>
