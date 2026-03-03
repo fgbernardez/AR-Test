@@ -82,14 +82,12 @@ public class ARController : MonoBehaviour
 
     void Update()
     {
-        // 1. If we are in "Watch Mode", run the animation
         if (isPlaced && isShowcasing && spawnedObject != null)
         {
             AnimateShowcase();
             return; 
         }
 
-        // 2. If not placed yet, handle Drag & Drop
         if (!isPlaced && Input.touchCount > 0)
         {
             Touch touch = Input.GetTouch(0);
@@ -110,13 +108,12 @@ public class ARController : MonoBehaviour
         }
     }
 
-    // --- PHASE 1: SPAWN GHOST ---
     void SpawnGhost(Vector2 touchPos)
     {
         Pose hitPose = GetPlanePosition(touchPos);
         if (hitPose == Pose.identity) return; 
 
-        GameObject prefabToUse = cubePrefab; // Default
+        GameObject prefabToUse = cubePrefab; 
         switch (selectedShape)
         {
             case "RectangularPrism": prefabToUse = rectangularPrismPrefab; break;
@@ -132,7 +129,6 @@ public class ARController : MonoBehaviour
         spawnedObject.transform.LookAt(lookPos);
     }
 
-    // --- PHASE 2: MOVE GHOST ---
     void MoveGhost(Vector2 touchPos)
     {
         Pose hitPose = GetPlanePosition(touchPos);
@@ -142,7 +138,6 @@ public class ARController : MonoBehaviour
         }
     }
 
-    // --- PHASE 3: LOCK IT ---
     void FinalizePlacement()
     {
         isPlaced = true;
@@ -157,35 +152,28 @@ public class ARController : MonoBehaviour
         else
         {
             if (controlPanel != null) controlPanel.SetActive(true);
-            
-            // Start the Auto-Showcase animation immediately
             isShowcasing = true;
             showcaseTimer = 0f;
         }
     }
 
-    // --- ANIMATION LOGIC ---
     void AnimateShowcase()
     {
         if (spawnedObject == null) return;
 
         showcaseTimer += Time.deltaTime;
 
-        // 1. CALCULATE BILLBOARD ROTATION
         Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
         dirToCamera.y = 0; 
         Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
-        textRotation *= Quaternion.Euler(0, 180, 0); // Flip to fix mirroring
+        textRotation *= Quaternion.Euler(0, 180, 0); 
 
-        // 2. MORPH MATH
         float valX = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
         float valY = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
         float valZ = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
 
-        // 3. APPLY CORE MATH ENGINE
         ApplyMathAndScale(valX, valY, valZ, true);
 
-        // 4. ROTATE TEXT ONLY
         if (volumeLabelObj != null) 
             volumeLabelObj.transform.rotation = textRotation;
 
@@ -198,7 +186,6 @@ public class ARController : MonoBehaviour
             }
         }
 
-        // 5. SLIDER SYNC
         if (sliderX != null) sliderX.SetValueWithoutNotify(valX);
         if (sliderY != null) sliderY.SetValueWithoutNotify(valY);
         if (sliderZ != null) sliderZ.SetValueWithoutNotify(valZ);
@@ -206,13 +193,9 @@ public class ARController : MonoBehaviour
 
     void StopShowcase()
     {
-        if (isShowcasing)
-        {
-            isShowcasing = false;
-        }
+        if (isShowcasing) isShowcasing = false;
     }
 
-    // --- MANUAL CONTROL ---
     public void UpdateDimensions()
     {
         if (spawnedObject == null || isShowcasing) return;
@@ -226,12 +209,17 @@ public class ARController : MonoBehaviour
         float volume = 0f;
         string prefix = isWatchMode ? "<color=yellow>Watch Mode</color>\n" : "";
 
+        Vector3 volumeLabelPos = new Vector3(0, 0.5f + 0.2f, 0); 
+
         if (selectedShape == "Cube")
         {
             spawnedObject.transform.localScale = Vector3.one * x;
             volume = Mathf.Pow(x, 3);
             if (mathText != null) mathText.text = $"{prefix}Side: {x:F2}m\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", x);
+            
+            Vector3 p = new Vector3(-0.5f, -0.5f, -0.5f);
+            CreateDimension(p, new Vector3(0.5f, -0.5f, -0.5f), new Vector3(0, -0.05f, -0.05f), $"s = {x:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", x, volumeLabelPos);
         }
         else if (selectedShape == "Sphere")
         {
@@ -239,15 +227,25 @@ public class ARController : MonoBehaviour
             float r = x / 2f;
             volume = (4f / 3f) * Mathf.PI * Mathf.Pow(r, 3);
             if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", x);
+            
+            CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, $"r = {r:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", x, volumeLabelPos);
         }
         else if (selectedShape == "Cylinder")
         {
-            spawnedObject.transform.localScale = new Vector3(x, y, x);
+            // FIX: Unity cylinders are naturally 2 units tall! So we scale Y by y/2f to make it accurate.
+            spawnedObject.transform.localScale = new Vector3(x, y / 2f, x);
             float r = x / 2f;
             volume = Mathf.PI * Mathf.Pow(r, 2) * y;
             if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+            
+            // FIX: Because of the scale change, the local top is at Y=1, not Y=0.5. 
+            // Offset is pushed UP so it floats on top of the cylinder.
+            CreateDimension(new Vector3(0, 1f, 0), new Vector3(0.5f, 1f, 0), new Vector3(0, 0.1f, 0), $"r = {r:F2}m");
+            
+            // Height: Outside left edge
+            CreateDimension(new Vector3(-0.5f, -1f, 0), new Vector3(-0.5f, 1f, 0), new Vector3(-0.1f, 0, 0), $"h = {y:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f, volumeLabelPos);
         }
         else if (selectedShape == "Cone")
         {
@@ -255,25 +253,53 @@ public class ARController : MonoBehaviour
             float r = x / 2f;
             volume = (1f / 3f) * Mathf.PI * Mathf.Pow(r, 2) * y;
             if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+            
+            // FIX: Pushed the radius line slightly DOWN so it doesn't clip into the floor
+            CreateDimension(new Vector3(0, -0.5f, 0), new Vector3(0.5f, -0.5f, 0), new Vector3(0, -0.1f, 0), $"r = {r:F2}m");
+            
+            // FIX: Height line is now drawn OUTSIDE the cone at X=0.5 so it is visible
+            CreateDimension(new Vector3(0.5f, -0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.1f, 0, 0), $"h = {y:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f, volumeLabelPos);
         }
         else if (selectedShape == "Pyramid")
         {
             spawnedObject.transform.localScale = new Vector3(x, y, x);
             volume = (1f / 3f) * Mathf.Pow(x, 2) * y; 
             if (mathText != null) mathText.text = $"{prefix}Base: {x:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f);
+            
+            // FIX: Base line offset pushed FORWARD and DOWN
+            CreateDimension(new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(0.5f, -0.5f, -0.5f), new Vector3(0, -0.1f, -0.1f), $"b = {x:F2}m");
+            
+            // FIX: Height line drawn OUTSIDE the pyramid
+            CreateDimension(new Vector3(0.5f, -0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.1f, 0, 0), $"h = {y:F2}m");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f, volumeLabelPos);
         }
         else // Rectangular Prism
         {
             spawnedObject.transform.localScale = new Vector3(x, y, z);
             volume = x * y * z;
             if (mathText != null) mathText.text = $"{prefix}L:{x:F1} | H:{y:F1} | W:{z:F1}\nVolume: {volume:F2} m³";
-            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y+z)/3f);
+            
+            Vector3 p = new Vector3(-0.5f, -0.5f, -0.5f);
+            CreateDimension(p, new Vector3(0.5f, -0.5f, -0.5f), new Vector3(0, -0.05f, -0.05f), $"L={x:F1}");
+            CreateDimension(p, new Vector3(-0.5f, 0.5f, -0.5f), new Vector3(-0.05f, 0, -0.05f), $"H={y:F1}");
+            CreateDimension(p, new Vector3(-0.5f, -0.5f, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={z:F1}");
+            CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y+z)/3f, volumeLabelPos);
         }
     }
 
-    // --- HELPERS ---
+    void CreateVolumeLabel(string text, float scaleRef, Vector3 localPos)
+    {
+        if (volumeLabelPrefab == null) return;
+        volumeLabelObj = Instantiate(volumeLabelPrefab, spawnedObject.transform);
+        
+        volumeLabelObj.transform.localPosition = localPos; 
+        
+        volumeLabelObj.GetComponent<TextMeshPro>().text = text;
+        if (scaleRef < 0.1f) scaleRef = 0.1f;
+        volumeLabelObj.transform.localScale = Vector3.one * (1f / scaleRef) * 0.05f;
+    }
+
     Pose GetPlanePosition(Vector2 touchPos)
     {
         List<ARRaycastHit> hits = new List<ARRaycastHit>();
@@ -309,11 +335,13 @@ public class ARController : MonoBehaviour
     void SetupExerciseVisuals()
     {
         ClearOldLabels();
+        Vector3 defaultLabelPos = new Vector3(0, 0.7f, 0); // Fixed the missing 3rd argument here!
+
         if (selectedShape == "Sphere")
         {
             spawnedObject.transform.localScale = Vector3.one * 0.6f;
             CreateDimension(Vector3.zero, new Vector3(0.5f, 0, 0), Vector3.zero, "r = 0.3m");
-            CreateVolumeLabel("Volume ≈ 0.11m³", 0.6f);
+            CreateVolumeLabel("Volume ≈ 0.11m³", 0.6f, defaultLabelPos); 
         }
         else
         {
@@ -322,7 +350,7 @@ public class ARController : MonoBehaviour
             CreateDimension(p, new Vector3(0.5f, 0, -0.5f), new Vector3(0, -0.05f, -0.05f), "L = 2m");
             CreateDimension(p, new Vector3(-0.5f, 1, -0.5f), new Vector3(-0.05f, 0, -0.05f), "H = ?");
             CreateDimension(p, new Vector3(-0.5f, 0, 0.5f), new Vector3(-0.05f, -0.05f, 0), "W = 2m");
-            CreateVolumeLabel("Volume = 12m³", 0.5f);
+            CreateVolumeLabel("Volume = 12m³", 0.5f, defaultLabelPos); 
         }
     }
 
@@ -332,16 +360,6 @@ public class ARController : MonoBehaviour
         GameObject dim = Instantiate(dimensionPrefab, spawnedObject.transform);
         dim.GetComponent<DimensionBuilder>().Configure(start, end, offset, text);
         activeDimensions.Add(dim);
-    }
-
-    void CreateVolumeLabel(string text, float scaleRef)
-    {
-        if (volumeLabelPrefab == null) return;
-        volumeLabelObj = Instantiate(volumeLabelPrefab, spawnedObject.transform);
-        volumeLabelObj.transform.localPosition = new Vector3(0, 1.5f, 0); 
-        volumeLabelObj.GetComponent<TextMeshPro>().text = text;
-        if (scaleRef < 0.1f) scaleRef = 0.1f;
-        volumeLabelObj.transform.localScale = Vector3.one * (1f / scaleRef) * 0.05f;
     }
 
     void ClearOldLabels()
