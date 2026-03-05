@@ -82,12 +82,23 @@ public class ARController : MonoBehaviour
 
     void Update()
     {
-        if (isPlaced && isShowcasing && spawnedObject != null)
+        // 1. IF THE OBJECT IS PLACED...
+        if (isPlaced && spawnedObject != null)
         {
-            AnimateShowcase();
+            // A. First, run the animation (which destroys and recreates labels)
+            if (isShowcasing)
+            {
+                AnimateShowcase();
+            }
+
+            // B. THEN, tell the surviving (or brand new) labels to face the camera
+            BillboardLabels();
+
+            // C. Stop running code here so we don't accidentally trigger the placement logic below
             return; 
         }
 
+        // 2. IF THE OBJECT IS NOT PLACED YET (Drag and Drop Logic)
         if (!isPlaced && Input.touchCount > 0)
         {
             Touch touch = Input.GetTouch(0);
@@ -106,6 +117,62 @@ public class ARController : MonoBehaviour
                 FinalizePlacement();
             }
         }
+    }
+
+    // --- NEW DEDICATED CAMERA-FACING FUNCTION ---
+    void BillboardLabels()
+    {
+        if (spawnedObject == null) return;
+
+        Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
+        dirToCamera.y = 0; 
+        Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
+        textRotation *= Quaternion.Euler(0, 180, 0); 
+
+        if (volumeLabelObj != null) 
+            volumeLabelObj.transform.rotation = textRotation;
+
+        foreach (var dim in activeDimensions)
+        {
+            if (dim != null)
+            {
+                TextMeshPro label = dim.GetComponentInChildren<TextMeshPro>();
+                if (label != null) label.transform.rotation = textRotation;
+            }
+        }
+    }
+
+    // --- ANIMATION LOGIC (Cleaned up!) ---
+    void AnimateShowcase()
+    {
+        if (spawnedObject == null) return;
+
+        showcaseTimer += Time.deltaTime;
+
+        float valX = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
+        float valY = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
+        float valZ = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
+
+        ApplyMathAndScale(valX, valY, valZ, true);
+
+        if (sliderX != null) sliderX.SetValueWithoutNotify(valX);
+        if (sliderY != null) sliderY.SetValueWithoutNotify(valY);
+        if (sliderZ != null) sliderZ.SetValueWithoutNotify(valZ);
+    }
+
+    // --- UPDATED VOLUME LABEL FUNCTION (2.5x Bigger) ---
+    void CreateVolumeLabel(string text, float scaleRef, Vector3 localPos)
+    {
+        if (volumeLabelPrefab == null) return;
+        volumeLabelObj = Instantiate(volumeLabelPrefab, spawnedObject.transform);
+        
+        volumeLabelObj.transform.localPosition = localPos; 
+        
+        volumeLabelObj.GetComponent<TextMeshPro>().text = text;
+        if (scaleRef < 0.1f) scaleRef = 0.1f;
+        
+        // FIX: Increased the base multiplier from 0.05f to 0.125f (2.5x larger)
+        volumeLabelObj.transform.localScale = Vector3.one * (1f / scaleRef) * 0.05f;
     }
 
     void SpawnGhost(Vector2 touchPos)
@@ -155,40 +222,6 @@ public class ARController : MonoBehaviour
             isShowcasing = true;
             showcaseTimer = 0f;
         }
-    }
-
-    void AnimateShowcase()
-    {
-        if (spawnedObject == null) return;
-
-        showcaseTimer += Time.deltaTime;
-
-        Vector3 dirToCamera = Camera.main.transform.position - spawnedObject.transform.position;
-        dirToCamera.y = 0; 
-        Quaternion textRotation = Quaternion.LookRotation(dirToCamera);
-        textRotation *= Quaternion.Euler(0, 180, 0); 
-
-        float valX = 0.5f + Mathf.Sin(showcaseTimer * 1.5f) * 0.2f;
-        float valY = 0.5f + Mathf.Cos(showcaseTimer * 1.2f) * 0.2f; 
-        float valZ = 0.5f + Mathf.Sin(showcaseTimer * 0.8f) * 0.2f;
-
-        ApplyMathAndScale(valX, valY, valZ, true);
-
-        if (volumeLabelObj != null) 
-            volumeLabelObj.transform.rotation = textRotation;
-
-        foreach (var dim in activeDimensions)
-        {
-            if (dim != null)
-            {
-                TextMeshPro label = dim.GetComponentInChildren<TextMeshPro>();
-                if (label != null) label.transform.rotation = textRotation;
-            }
-        }
-
-        if (sliderX != null) sliderX.SetValueWithoutNotify(valX);
-        if (sliderY != null) sliderY.SetValueWithoutNotify(valY);
-        if (sliderZ != null) sliderZ.SetValueWithoutNotify(valZ);
     }
 
     void StopShowcase()
@@ -254,11 +287,14 @@ public class ARController : MonoBehaviour
             volume = (1f / 3f) * Mathf.PI * Mathf.Pow(r, 2) * y;
             if (mathText != null) mathText.text = $"{prefix}Radius: {r:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
             
-            // FIX: Pushed the radius line slightly DOWN so it doesn't clip into the floor
-            CreateDimension(new Vector3(0, -0.5f, 0), new Vector3(0.5f, -0.5f, 0), new Vector3(0, -0.1f, 0), $"r = {r:F2}m");
+            // RADIUS (DRAFTING STYLE): Starts exactly at the tip, draws out to the right boundary.
+            // Lifted just a tiny bit (0.05f) so it doesn't clip through the physical tip of the cone.
+            CreateDimension(new Vector3(0, 0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0, 0.05f, 0), $"r = {r:F2}m");
             
-            // FIX: Height line is now drawn OUTSIDE the cone at X=0.5 so it is visible
-            CreateDimension(new Vector3(0.5f, -0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.1f, 0, 0), $"h = {y:F2}m");
+            // HEIGHT: Absolute center of the base straight up to the exact tip.
+            // Pushed to the right (0.6f) to float outside the cone.
+            CreateDimension(new Vector3(0, -0.5f, 0), new Vector3(0, 0.5f, 0), new Vector3(0.6f, 0, 0), $"h = {y:F2}m");
+            
             CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f, volumeLabelPos);
         }
         else if (selectedShape == "Pyramid")
@@ -267,11 +303,14 @@ public class ARController : MonoBehaviour
             volume = (1f / 3f) * Mathf.Pow(x, 2) * y; 
             if (mathText != null) mathText.text = $"{prefix}Base: {x:F2}m | Height: {y:F2}m\nVolume: {volume:F2} m³";
             
-            // FIX: Base line offset pushed FORWARD and DOWN
-            CreateDimension(new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(0.5f, -0.5f, -0.5f), new Vector3(0, -0.1f, -0.1f), $"b = {x:F2}m");
+            // BASE EDGE: Front-left corner to Front-right corner.
+            // Pushed slightly forward (-0.1f) so it rests outside the mesh.
+            CreateDimension(new Vector3(-0.5f, -0.5f, -0.5f), new Vector3(0.5f, -0.5f, -0.5f), new Vector3(0, 0.02f, -0.1f), $"b = {x:F2}m");
             
-            // FIX: Height line drawn OUTSIDE the pyramid
-            CreateDimension(new Vector3(0.5f, -0.5f, 0), new Vector3(0.5f, 0.5f, 0), new Vector3(0.1f, 0, 0), $"h = {y:F2}m");
+            // HEIGHT: Absolute center of the base straight up to the exact tip.
+            // Pushed far to the right (0.6f) to float outside the pyramid.
+            CreateDimension(new Vector3(0, -0.5f, 0), new Vector3(0, 0.5f, 0), new Vector3(0.6f, 0, 0), $"h = {y:F2}m");
+            
             CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y)/2f, volumeLabelPos);
         }
         else // Rectangular Prism
@@ -286,18 +325,6 @@ public class ARController : MonoBehaviour
             CreateDimension(p, new Vector3(-0.5f, -0.5f, 0.5f), new Vector3(-0.05f, -0.05f, 0), $"W={z:F1}");
             CreateVolumeLabel($"Vol: {volume:F2}m³", (x+y+z)/3f, volumeLabelPos);
         }
-    }
-
-    void CreateVolumeLabel(string text, float scaleRef, Vector3 localPos)
-    {
-        if (volumeLabelPrefab == null) return;
-        volumeLabelObj = Instantiate(volumeLabelPrefab, spawnedObject.transform);
-        
-        volumeLabelObj.transform.localPosition = localPos; 
-        
-        volumeLabelObj.GetComponent<TextMeshPro>().text = text;
-        if (scaleRef < 0.1f) scaleRef = 0.1f;
-        volumeLabelObj.transform.localScale = Vector3.one * (1f / scaleRef) * 0.05f;
     }
 
     Pose GetPlanePosition(Vector2 touchPos)

@@ -2043,8 +2043,8 @@ MonoBehaviour:
   m_EditorClassIdentifier: Assembly-CSharp::ARController
   cubePrefab: {fileID: 3420529652900992684, guid: 857f89b931ab84a46ab468f50e04763f, type: 3}
   rectangularPrismPrefab: {fileID: 6698727969510872872, guid: 9f52e4643d8f04bda87bfa43a73cf8fb, type: 3}
-  pyramidPrefab: {fileID: 5067554056586865963, guid: d635dd7f0c02741a2a348f690ef08bec, type: 3}
-  conePrefab: {fileID: 7437351682747891918, guid: f5d651e6e7d1748e494696c016ec1d84, type: 3}
+  pyramidPrefab: {fileID: 7557584021758690732, guid: 544516797eb7848ec93b2cfaa98ad8bc, type: 3}
+  conePrefab: {fileID: 1519660459959542939, guid: b8b5e293be50648ba956553794d7fccc, type: 3}
   cylinderPrefab: {fileID: 7363976442007460908, guid: fefb8b8bbfb1a4368acaa17f7d764e3d, type: 3}
   spherePrefab: {fileID: 5364608356390285336, guid: 99c314cae618f47dcab8a2967c520874, type: 3}
   controlPanel: {fileID: 731799074}
